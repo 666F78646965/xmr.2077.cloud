@@ -47,6 +47,7 @@
     }
 
     .panel {
+      position: relative;
       background: var(--card-bg);
       border: 1px solid rgba(255, 102, 0, 0.25);
       border-radius: 12px;
@@ -57,6 +58,37 @@
       box-shadow: 0 0 30px rgba(255, 102, 0, 0.1);
       backdrop-filter: blur(10px);
       pointer-events: auto;
+      transition: transform 0.6s cubic-bezier(0.19, 1, 0.22, 1);
+    }
+
+    .panel.minimized {
+      transform: translateY(calc(50vh + 50% - 50px));
+    }
+
+    .panel-toggle {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 5px;
+      border-radius: 4px;
+      transition: all 0.3s ease;
+    }
+
+    .panel-toggle:hover {
+      color: var(--neon-orange);
+      background: rgba(255, 102, 0, 0.1);
+    }
+
+    .panel-toggle.secret-glow {
+      color: #ff0055 !important;
+      filter: drop-shadow(0 0 10px #ff0055) drop-shadow(0 0 20px #ff0055);
     }
 
     h2, h3 {
@@ -65,7 +97,7 @@
       margin-top: 0;
     }
 
-    h2 { font-size: 1.4rem; margin-bottom: 10px; }
+    h2 { font-size: 1.4rem; margin-bottom: 10px; padding-right: 25px; }
     h3 { font-size: 1.1rem; }
 
     .orange-text { color: var(--neon-orange); text-shadow: 0 0 10px rgba(255, 102, 0, 0.4); }
@@ -323,6 +355,52 @@
       margin-top: 15px;
       font-family: monospace;
     }
+
+    #joy-container {
+      display: none;
+      position: absolute;
+      bottom: 30px;
+      left: 30px;
+      width: 90px;
+      height: 90px;
+      background: rgba(0, 240, 255, 0.03);
+      border: 2px solid var(--neon-cyan);
+      border-radius: 50%;
+      z-index: 10;
+      touch-action: none;
+    }
+
+    #joy-knob {
+      position: absolute;
+      top: 30px;
+      left: 30px;
+      width: 30px;
+      height: 30px;
+      background: var(--neon-cyan);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--neon-cyan);
+    }
+
+    #fire-btn {
+      display: none;
+      position: absolute;
+      bottom: 30px;
+      right: 30px;
+      width: 75px;
+      height: 75px;
+      background: rgba(255, 102, 0, 0.1);
+      border: 2px solid var(--neon-orange);
+      border-radius: 50%;
+      z-index: 10;
+      color: var(--neon-orange);
+      font-family: monospace;
+      font-weight: bold;
+      text-align: center;
+      line-height: 75px;
+      user-select: none;
+      touch-action: none;
+      box-shadow: 0 0 10px rgba(255, 102, 0, 0.2);
+    }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
@@ -330,8 +408,17 @@
 
   <div id="canvas-container"></div>
 
+  <div id="joy-container"><div id="joy-knob"></div></div>
+  <div id="fire-btn">FIRE</div>
+
   <div class="ui-layer">
     <div class="panel" id="gateway-panel">
+      
+      <button class="panel-toggle" id="panel-toggle-btn" onclick="togglePanel()" title="Minimize Terminal">
+        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
       
       <svg width="60" height="60" viewBox="0 0 100 100" style="margin-bottom: 15px; filter: drop-shadow(0 0 8px var(--neon-orange));">
         <circle cx="50" cy="50" r="48" fill="none" stroke="var(--neon-orange)" stroke-width="4"/>
@@ -397,6 +484,14 @@
     let mouseX = 0, mouseY = 0, targetX = 0, targetY = 0;
     let windowHalfX = window.innerWidth / 2;
     let windowHalfY = window.innerHeight / 2;
+
+    let isMinimized = false;
+    let isSecretReady = false;
+    let isGameActive = false;
+    let oceanMesh, boatMesh;
+    let bullets = [], enemies = [];
+    let gameTargetX = 0, gameTargetZ = 60;
+    let joyActive = false, joyStartX = 0, joyStartY = 0;
 
     function init3D() {
       const container = document.getElementById('canvas-container');
@@ -478,6 +573,19 @@
       magneticRays = new THREE.LineSegments(rayGeometry, rayMaterial);
       scene.add(magneticRays);
 
+      const oceanGeo = new THREE.PlaneGeometry(800, 800, 1, 1);
+      oceanGeo.rotateX(-Math.PI / 2);
+      const oceanMat = new THREE.MeshBasicMaterial({
+        color: 0x030307,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide
+      });
+      oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
+      oceanMesh.position.y = -31;
+      oceanMesh.visible = false;
+      scene.add(oceanMesh);
+
       renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -486,6 +594,9 @@
       document.addEventListener('mousemove', onMouseMove, false);
       document.addEventListener('touchmove', onTouchMove, { passive: true });
       window.addEventListener('resize', onWindowResize, false);
+      window.addEventListener('click', onWindowClick, false);
+
+      setupMobileControls();
       
       animate();
     }
@@ -493,12 +604,20 @@
     function onMouseMove(event) {
       mouseX = event.clientX - windowHalfX;
       mouseY = event.clientY - windowHalfY;
+      if (isGameActive) {
+        gameTargetX = (mouseX / windowHalfX) * 200;
+        gameTargetZ = (mouseY / windowHalfY) * 150 + 50;
+      }
     }
 
     function onTouchMove(event) {
-      if (event.touches.length === 1) {
+      if (event.touches.length === 1 && !joyActive) {
         mouseX = event.touches[0].clientX - windowHalfX;
         mouseY = event.touches[0].clientY - windowHalfY;
+        if (isGameActive) {
+          gameTargetX = (mouseX / windowHalfX) * 200;
+          gameTargetZ = (mouseY / windowHalfY) * 150 + 50;
+        }
       }
     }
 
@@ -510,17 +629,61 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
+    function onWindowClick(event) {
+      if (isGameActive && isMinimized && event.target.closest('#canvas-container')) {
+        firePlayerWeapon();
+      }
+    }
+
+    function setupMobileControls() {
+      const container = document.getElementById('joy-container');
+      const knob = document.getElementById('joy-knob');
+      const fireBtn = document.getElementById('fire-btn');
+
+      container.addEventListener('touchstart', (e) => {
+        joyActive = true;
+        const rect = container.getBoundingClientRect();
+        joyStartX = rect.left + rect.width / 2;
+        joyStartY = rect.top + rect.height / 2;
+        e.preventDefault();
+      }, { passive: false });
+
+      container.addEventListener('touchmove', (e) => {
+        if (!joyActive) return;
+        const touch = e.touches[0];
+        let dx = touch.clientX - joyStartX;
+        let dy = touch.clientY - joyStartY;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const maxDist = 30;
+
+        if (dist > maxDist) {
+          dx = (dx / dist) * maxDist;
+          dy = (dy / dist) * maxDist;
+        }
+
+        knob.style.transform = `translate(${dx}px, ${dy}px)`;
+        if (isGameActive) {
+          gameTargetX += (dx / maxDist) * 8;
+          gameTargetZ += (dy / maxDist) * 8;
+        }
+        e.preventDefault();
+      }, { passive: false });
+
+      container.addEventListener('touchend', () => {
+        joyActive = false;
+        knob.style.transform = 'translate(0px, 0px)';
+      });
+
+      fireBtn.addEventListener('touchstart', (e) => {
+        if (isGameActive) firePlayerWeapon();
+        e.preventDefault();
+      }, { passive: false });
+    }
+
     let time = 0;
     function animate() {
       requestAnimationFrame(animate);
       time += 0.02;
-
-      targetX += (mouseX - targetX) * 0.05;
-      targetY += (mouseY - targetY) * 0.05;
-
-      camera.position.x += (targetX * 0.25 - camera.position.x) * 0.05;
-      camera.position.y += ((-targetY * 0.2) + 110 - camera.position.y) * 0.05;
-      camera.lookAt(new THREE.Vector3(0, -10, 0));
 
       const particlePositions = particles.geometry.attributes.position.array;
       const particleColors = particles.geometry.attributes.color.array;
@@ -591,7 +754,156 @@
       magneticRays.geometry.attributes.position.needsUpdate = true;
       magneticRays.geometry.attributes.color.needsUpdate = true;
 
+      if (isGameActive) {
+        updateSecretGame();
+      } else {
+        targetX += (mouseX - targetX) * 0.05;
+        targetY += (mouseY - targetY) * 0.05;
+
+        camera.position.x += (targetX * 0.25 - camera.position.x) * 0.05;
+        camera.position.y += ((-targetY * 0.2) + 110 - camera.position.y) * 0.05;
+        camera.position.z += (220 - camera.position.z) * 0.05;
+        camera.lookAt(new THREE.Vector3(0, -10, 0));
+      }
+
       renderer.render(scene, camera);
+    }
+
+    function togglePanel() {
+      const panel = document.getElementById('gateway-panel');
+      const btn = document.getElementById('panel-toggle-btn');
+      isMinimized = !isMinimized;
+
+      if (isMinimized) {
+        panel.classList.add('minimized');
+        btn.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>`;
+        btn.title = "Maximize Terminal";
+        if (isSecretReady) {
+          triggerSecretGame(true);
+        }
+      } else {
+        panel.classList.remove('minimized');
+        btn.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+        btn.title = "Minimize Terminal";
+        if (isGameActive) {
+          triggerSecretGame(false);
+        }
+      }
+    }
+
+    function checkSecretAmount(val) {
+      const btn = document.getElementById('panel-toggle-btn');
+      if (parseFloat(val) === 666) {
+        isSecretReady = true;
+        btn.classList.add('secret-glow');
+      } else {
+        isSecretReady = false;
+        btn.classList.remove('secret-glow');
+      }
+    }
+
+    function triggerSecretGame(activate) {
+      if (activate) {
+        isGameActive = true;
+        oceanMesh.visible = true;
+
+        if (!boatMesh) {
+          const group = new THREE.Group();
+          const bodyGeo = new THREE.ConeGeometry(5, 16, 4);
+          bodyGeo.rotateX(-Math.PI / 2);
+          const bodyMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, wireframe: true });
+          const body = new THREE.Mesh(bodyGeo, bodyMat);
+          group.add(body);
+          group.position.set(0, -29, 60);
+          scene.add(group);
+          boatMesh = group;
+        }
+        boatMesh.visible = true;
+        boatMesh.position.set(0, -29, 60);
+        gameTargetX = 0;
+        gameTargetZ = 60;
+
+        if ('ontouchstart' in window) {
+          document.getElementById('joy-container').style.display = 'block';
+          document.getElementById('fire-btn').style.display = 'block';
+        }
+      } else {
+        isGameActive = false;
+        if (oceanMesh) oceanMesh.visible = false;
+        if (boatMesh) boatMesh.visible = false;
+        bullets.forEach(b => scene.remove(b));
+        enemies.forEach(e => scene.remove(e));
+        bullets = [];
+        enemies = [];
+        document.getElementById('joy-container').style.display = 'none';
+        document.getElementById('fire-btn').style.display = 'none';
+      }
+    }
+
+    function firePlayerWeapon() {
+      if (!boatMesh) return;
+      const geo = new THREE.SphereGeometry(1.2, 4, 4);
+      const mat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
+      const bullet = new THREE.Mesh(geo, mat);
+      bullet.position.copy(boatMesh.position);
+      scene.add(bullet);
+      bullets.push(bullet);
+    }
+
+    function updateSecretGame() {
+      camera.position.x += (boatMesh.position.x - camera.position.x) * 0.05;
+      camera.position.y += (140 - camera.position.y) * 0.05;
+      camera.position.z += ((boatMesh.position.z + 110) - camera.position.z) * 0.05;
+      camera.lookAt(boatMesh.position.x, -30, boatMesh.position.z - 30);
+
+      gameTargetX = Math.max(-180, Math.min(180, gameTargetX));
+      gameTargetZ = Math.max(-150, Math.min(150, gameTargetZ));
+
+      boatMesh.position.x += (gameTargetX - boatMesh.position.x) * 0.1;
+      boatMesh.position.z += (gameTargetZ - boatMesh.position.z) * 0.1;
+      boatMesh.rotation.y = -(gameTargetX - boatMesh.position.x) * 0.01;
+      boatMesh.rotation.z = (gameTargetX - boatMesh.position.x) * 0.01;
+
+      if (Math.random() < 0.04 && enemies.length < 12) {
+        const geo = new THREE.BoxGeometry(7, 7, 7);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xff0055, wireframe: true });
+        const enemy = new THREE.Mesh(geo, mat);
+        enemy.position.set((Math.random() - 0.5) * 360, -29, boatMesh.position.z - 240);
+        scene.add(enemy);
+        enemies.push(enemy);
+      }
+
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.position.z -= 5;
+        if (b.position.z < boatMesh.position.z - 300) {
+          scene.remove(b);
+          bullets.splice(i, 1);
+          continue;
+        }
+
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const e = enemies[j];
+          if (b.position.distanceTo(e.position) < 10) {
+            scene.remove(e);
+            enemies.splice(j, 1);
+            scene.remove(b);
+            bullets.splice(i, 1);
+            break;
+          }
+        }
+      }
+
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        e.position.z += 2;
+        e.rotation.x += 0.02;
+        e.rotation.y += 0.02;
+        if (e.position.z > boatMesh.position.z + 60) {
+          scene.remove(e);
+          enemies.splice(i, 1);
+        }
+      }
     }
 
     window.addEventListener('DOMContentLoaded', init3D);
@@ -614,6 +926,7 @@
       } else {
         slider.value = 0.02077;
       }
+      checkSecretAmount(num);
     }
 
     function clampMinAmount() {
@@ -624,11 +937,13 @@
         input.value = 0.02077;
         document.getElementById('donation-slider').value = 0.02077;
       }
+      checkSecretAmount(input.value);
     }
 
     function syncFromSlider(val) {
       const input = document.getElementById('donation-amount');
       input.value = val;
+      checkSecretAmount(val);
     }
 
     function toggleAnonymousMode() {
