@@ -236,7 +236,7 @@
     }
 
     .address-box {
-      padding: 12px 45px 12px 12px;
+      position: relative;
       font-family: monospace;
       font-size: 0.72rem;
       word-break: break-all;
@@ -245,6 +245,25 @@
       width: 100%;
       cursor: pointer;
       transition: all 0.3s ease;
+    }
+
+    .matrix-layer {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      box-sizing: border-box;
+      padding: 12px 45px 12px 12px;
+      pointer-events: none;
+      user-select: none;
+      color: var(--neon-cyan);
+      opacity: 0.75;
+      z-index: 1;
+    }
+
+    .real-layer {
+      position: relative;
+      z-index: 2;
+      padding: 12px 45px 12px 12px;
+      box-sizing: border-box;
     }
 
     .address-wrapper:hover {
@@ -269,6 +288,7 @@
       align-items: center;
       justify-content: center;
       transition: color 0.2s, transform 0.1s;
+      z-index: 3;
     }
 
     .copy-btn:hover {
@@ -318,7 +338,7 @@
         <path d="M22 78V46L50 68L78 46V78H90V22H74L50 46L26 22H10V78H22Z" fill="var(--neon-orange)"/>
       </svg>
 
-      <h2>XMR // <span class="orange-text">DONATION NODE</span></h2>
+      <h2><span style="color: var(--text-muted);">XMR //</span> <span class="orange-text">DONATION NODE</span></h2>
       <p>Support our operations. Provide your information to generate your secure donation gateway.</p>
       
       <div class="form-group toggle-container">
@@ -335,7 +355,7 @@
       </div>
 
       <div class="form-group">
-        <label for="donation-amount">Amount (Optional XMR)</label>
+        <label for="donation-amount">Amount (MONERO)</label>
         <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 5px;">
           <input type="number" id="donation-amount" class="input-field" placeholder="e.g. 0.05" step="0.00001" min="0.02077" max="2077" oninput="syncFromInput(this.value)" onblur="clampMinAmount()">
           <span style="color: var(--neon-cyan); font-family: monospace; font-weight: bold; font-size: 0.85rem;">XMR</span>
@@ -625,7 +645,7 @@
     }
 
     function copyAddressToClipboard() {
-      const textToCopy = document.getElementById('address-text').innerText;
+      const textToCopy = document.getElementById('address-text').getAttribute('data-raw-address');
       const blockElement = document.getElementById('address-block');
       const iconBtn = document.getElementById('copy-icon-btn');
 
@@ -705,7 +725,84 @@
           moneroUri += `?amount=${value}`;
         }
         
-        document.getElementById('address-text').innerText = myCakeWalletAddress;
+        const addressBox = document.getElementById('address-text');
+        addressBox.setAttribute('data-raw-address', myCakeWalletAddress);
+        addressBox.innerHTML = `
+          <div class="matrix-layer" id="matrix-layer"></div>
+          <div class="real-layer" id="real-layer"></div>
+        `;
+        
+        const matrixLayer = document.getElementById('matrix-layer');
+        const realLayer = document.getElementById('real-layer');
+        const realSpans = [];
+        const matrixSpans = [];
+        const matrixChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*+<>";
+
+        for (let i = 0; i < myCakeWalletAddress.length; i++) {
+          const rSpan = document.createElement('span');
+          rSpan.textContent = myCakeWalletAddress[i];
+          rSpan.style.transition = "opacity 0.05s, color 0.2s, text-shadow 0.2s";
+          realLayer.appendChild(rSpan);
+          realSpans.push(rSpan);
+
+          const mSpan = document.createElement('span');
+          mSpan.textContent = " ";
+          mSpan.style.opacity = "0";
+          matrixLayer.appendChild(mSpan);
+          matrixSpans.push(mSpan);
+        }
+
+        const hlIndices = new Set();
+        const hlGroups = [];
+        const findTargets = (target) => {
+          let idx = myCakeWalletAddress.indexOf(target);
+          while (idx !== -1) {
+            const group = [];
+            for (let i = 0; i < target.length; i++) {
+              hlIndices.add(idx + i);
+              group.push(idx + i);
+            }
+            hlGroups.push(group);
+            idx = myCakeWalletAddress.indexOf(target, idx + 1);
+          }
+        };
+        findTargets("888");
+        findTargets("KEY");
+
+        if (window.glitchInterval) clearInterval(window.glitchInterval);
+        if (window.glowInterval) clearInterval(window.glowInterval);
+
+        window.glitchInterval = setInterval(() => {
+          const randIdx = Math.floor(Math.random() * myCakeWalletAddress.length);
+          if (hlIndices.has(randIdx)) return;
+
+          const randChar = matrixChars[Math.floor(Math.random() * matrixChars.length)];
+          realSpans[randIdx].style.opacity = "0";
+          matrixSpans[randIdx].textContent = randChar;
+          matrixSpans[randIdx].style.opacity = "1";
+
+          setTimeout(() => {
+            realSpans[randIdx].style.opacity = "1";
+            matrixSpans[randIdx].style.opacity = "0";
+          }, 150 + Math.random() * 250);
+        }, 50);
+
+        window.glowInterval = setInterval(() => {
+          hlGroups.forEach(group => {
+            if (Math.random() > 0.4) {
+              group.forEach(idx => {
+                realSpans[idx].style.color = "var(--neon-orange)";
+                realSpans[idx].style.textShadow = "0 0 10px var(--neon-orange)";
+              });
+              setTimeout(() => {
+                group.forEach(idx => {
+                  realSpans[idx].style.color = "";
+                  realSpans[idx].style.textShadow = "";
+                });
+              }, 300);
+            }
+          });
+        }, 600);
         
         const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(moneroUri)}`;
         
